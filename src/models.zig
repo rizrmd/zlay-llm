@@ -53,7 +53,7 @@ pub const ChatCompletionRequest = struct {
 pub const ChatMessage = struct {
     role: []const u8,
     content: ?[]const u8 = null,
-    tool_calls: ?[]ToolCall = null,
+    tool_calls: ?[]const ToolCall = null,
     tool_call_id: ?[]const u8 = null,
 
     pub const ToolCall = struct {
@@ -74,7 +74,7 @@ pub const ChatCompletionResponse = struct {
     object: []const u8 = "chat.completion",
     created: u64,
     model: []const u8,
-    choices: []Choice,
+    choices: []const Choice,
     usage: Usage,
 
     pub const Choice = struct {

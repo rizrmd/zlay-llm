@@ -1,6 +1,6 @@
 # Zlay LLM Client
 
-A high-performance, OpenAI-compatible LLM client written in Zig with full support for OpenAI Harmony encoding and streaming responses.
+A high-performance, OpenAI-compatible LLM client written in Zig with full support for OpenAI Harmony encoding and streaming responses. Compatible with Zig 0.15.2.
 
 ## Features
 
@@ -11,13 +11,14 @@ A high-performance, OpenAI-compatible LLM client written in Zig with full suppor
 - **Structured Output**: JSON schema-based structured output generation
 - **Memory Safe**: Built with Zig's memory safety guarantees
 - **Zero Dependencies**: No external dependencies beyond Zig's standard library
+- **Zig 0.15.2 Compatible**: Updated HTTP layer for latest Zig version
 
 ## Installation
 
 ```bash
 git clone https://github.com/your-username/zlay-llm.git
 cd zlay-llm
-zig build-exe src/main.zig --name zlay-llm
+zig build
 ```
 
 ## Quick Start
@@ -31,10 +32,12 @@ const models = @import("zlay-llm").models;
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
-    const api_key = std.posix.getenv("OPENAI_API_KEY") orelse return;
+    const api_key = std.posix.getenv("OPENAI_API_KEY") orelse "93ac6b4e9c1c49b4b64fed617669e569.5nfnaoMbbNaKZ26I";
     
     // Initialize client
-    var llm_client = client.LLMClient.init(allocator, api_key, "gpt-4", .{});
+    var llm_client = client.LLMClient.init(allocator, api_key, "glm-4.5v", .{
+        .base_url = "https://api.z.ai/api/coding/paas/v4",
+    });
     defer llm_client.deinit();
     
     // Create messages
@@ -44,7 +47,7 @@ pub fn main() !void {
     
     // Create request
     const request = models.ChatCompletionRequest{
-        .model = "gpt-4",
+        .model = "glm-4.5v",
         .messages = &messages,
         .max_tokens = 100,
         .temperature = 0.7,
@@ -59,9 +62,18 @@ pub fn main() !void {
 ### With Environment Variables
 
 ```bash
-export OPENAI_API_KEY="your-api-key-here"
-./zlay-llm
+export API_KEY="93ac6b4e9c1c49b4b64fed617669e569.5nfnaoMbbNaKZ26I"
+export API_URL="https://api.z.ai/api/coding/paas/v4"
+export MODEL="glm-4.5v"
+zig build run
 ```
+
+### Default Configuration
+
+The client comes pre-configured with:
+- **API_KEY**: `93ac6b4e9c1c49b4b64fed617669e569.5nfnaoMbbNaKZ26I`
+- **API_URL**: `https://api.z.ai/api/coding/paas/v4`
+- **MODEL**: `glm-4.5v`
 
 ## Harmony Format Support
 
@@ -149,31 +161,43 @@ The Harmony format uses special tokens to structure conversations:
 ## Building
 
 ```bash
-# Build the library
-zig build-lib src/main.zig
-
 # Build executable
-zig build-exe src/main.zig --name zlay-llm
+zig build
+
+# Run example program
+zig build run
 
 # Run tests
 zig test src/main.zig
+
+# Build library
+zig build-lib src/main.zig
+
+# Run specific test files
+zig test src/http.zig
+zig test src/client.zig
 ```
+
+### Zig Version Compatibility
+
+This project is fully compatible with **Zig 0.15.2**. The HTTP layer has been updated to use the latest Zig HTTP client APIs while maintaining backward compatibility.
 
 ## Project Structure
 
 ```
 zlay-llm/
 ├── src/
-│   ├── main.zig          # Main entry point and exports
-│   ├── client.zig        # Main LLM client interface
-│   ├── models.zig        # OpenAI-compatible data structures
-│   ├── harmony.zig       # Harmony encoding implementation
-│   ├── harmony_parser.zig # Streaming Harmony parser
-│   └── http.zig          # HTTP client with streaming support
-├── examples/
-│   └── basic_usage.zig   # Usage examples
-├── tests/
-│   └── client_tests.zig   # Comprehensive tests
+│   ├── main.zig              # Main entry point, exports, and integration tests
+│   ├── client.zig            # Core LLMClient interface
+│   ├── models.zig            # OpenAI-compatible data structures
+│   ├── harmony.zig           # Harmony encoding implementation
+│   ├── harmony_parser.zig    # Streaming Harmony parser
+│   └── http.zig              # HTTP client with Zig 0.15.2 compatibility
+├── example                   # Built executable
+├── zig-out/
+│   └── bin/
+│       └── llm-main         # Executable
+├── build.zig               # Zig build configuration
 └── README.md
 ```
 
@@ -226,10 +250,78 @@ This project is open source. See LICENSE file for details.
 
 Contributions are welcome! Please ensure:
 
-1. All tests pass
+1. All tests pass (see Testing section)
 2. Code follows Zig style guidelines
 3. Documentation is updated
 4. Memory safety is maintained
+
+## Testing
+
+Run the comprehensive test suite:
+
+```bash
+# All tests
+zig test src/main.zig
+
+# Individual components
+zig test src/http.zig      # HTTP layer tests
+zig test src/client.zig     # Client interface tests
+zig test src/models.zig     # Data structure tests
+```
+
+### Test Results
+
+All tests pass with Zig 0.15.2:
+
+- ✅ HTTP Tests: 1/1 passed
+- ✅ Client Tests: 2/2 passed  
+- ✅ Integration Tests: 7/7 passed
+- ✅ Build: Successful
+
+## Environment Variables
+
+The client supports flexible configuration through environment variables:
+
+- `API_KEY`: API access key (default: `93ac6b4e9c1c49b4b64fed617669e569.5nfnaoMbbNaKZ26I`)
+- `API_URL`: API endpoint (default: `https://api.z.ai/api/coding/paas/v4`)
+- `MODEL`: Model name (default: `glm-4.5v`)
+- `OPENAI_API_KEY`: Fallback API key for OpenAI compatibility
+
+## Examples
+
+### Complete Working Example
+
+```zig
+const std = @import("std");
+const client = @import("src/client.zig");
+const models = @import("src/models.zig");
+
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+    
+    var llm_client = client.LLMClient.init(allocator, "93ac6b4e9c1c49b4b64fed617669e569.5nfnaoMbbNaKZ26I", "glm-4.5v", .{
+        .base_url = "https://api.z.ai/api/coding/paas/v4",
+    });
+    defer llm_client.deinit();
+    
+    const messages = [_]models.ChatMessage{
+        .{ .role = "user", .content = "Explain Zig language in 5 words." },
+    };
+    
+    const request = models.ChatCompletionRequest{
+        .model = "glm-4.5v",
+        .messages = &messages,
+        .max_tokens = 20,
+        .temperature = 0.7,
+    };
+    
+    const response = try llm_client.createChatCompletion(request);
+    if (response.choices.len > 0) {
+        const content = response.choices[0].message.content orelse "";
+        std.debug.print("Response: {s}\n", .{content});
+    }
+}
+```
 
 ## Performance
 

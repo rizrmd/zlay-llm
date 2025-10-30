@@ -49,7 +49,7 @@ pub const LLMClient = struct {
     /// Standard OpenAI chat completion
     fn createStandardChatCompletion(self: *LLMClient, request: models.ChatCompletionRequest) !models.ChatCompletionResponse {
         // Simple JSON string for testing
-        const request_json = try std.fmt.allocPrint(self.allocator, "{{\"model\":\"{s}\",\"messages\":[{{\"role\":\"{s}\",\"content\":\"{s}\"}}],\"stream\":{s}}}", .{ request.model, request.messages[0].role, request.messages[0].content, if (request.stream) "true" else "false" });
+        const request_json = try std.fmt.allocPrint(self.allocator, "{{\"model\":\"{s}\",\"messages\":[{{\"role\":\"{s}\",\"content\":\"{s}\"}}],\"stream\":{s}}}", .{ request.model, request.messages[0].role, request.messages[0].content orelse "", if (request.stream) "true" else "false" });
         defer self.allocator.free(request_json);
 
         const response_body = try self.http_client.post("/chat/completions", request_json);
@@ -99,7 +99,7 @@ pub const LLMClient = struct {
         stream_request.stream = true;
 
         // Simple JSON string for streaming request
-        const request_json = try std.fmt.allocPrint(self.allocator, "{{\"model\":\"{s}\",\"messages\":[{{\"role\":\"{s}\",\"content\":\"{s}\"}}],\"stream\":{s}}}", .{ stream_request.model, stream_request.messages[0].role, stream_request.messages[0].content, if (stream_request.stream) "true" else "false" });
+        const request_json = try std.fmt.allocPrint(self.allocator, "{{\"model\":\"{s}\",\"messages\":[{{\"role\":\"{s}\",\"content\":\"{s}\"}}],\"stream\":{s}}}", .{ stream_request.model, stream_request.messages[0].role, stream_request.messages[0].content orelse "", if (stream_request.stream) "true" else "false" });
         defer self.allocator.free(request_json);
 
         const http_stream = try self.http_client.postStream("/chat/completions", request_json);
@@ -214,21 +214,26 @@ pub const LLMClient = struct {
         const choice = parsed.value.choices[0];
 
         var messages = try self.allocator.alloc(models.ChatMessage, original_messages.len + 1);
-        std.mem.copy(models.ChatMessage, messages, original_messages);
+        for (original_messages, 0..) |msg, i| {
+            messages[i] = msg;
+        }
         messages[messages.len - 1] = .{
             .role = "assistant",
             .content = choice.text,
         };
 
+        const choices = try self.allocator.alloc(models.ChatCompletionResponse.Choice, 1);
+        choices[0] = .{
+            .index = 0,
+            .message = messages[messages.len - 1],
+            .finish_reason = choice.finish_reason,
+        };
+
         return models.ChatCompletionResponse{
-            .id = parsed.value.id,
+            .id = try self.allocator.dupe(u8, parsed.value.id),
             .created = parsed.value.created,
-            .model = parsed.value.model,
-            .choices = &[_]models.ChatCompletionResponse.Choice{.{
-                .index = 0,
-                .message = messages[messages.len - 1],
-                .finish_reason = choice.finish_reason,
-            }},
+            .model = try self.allocator.dupe(u8, parsed.value.model),
+            .choices = choices,
             .usage = .{
                 .prompt_tokens = parsed.value.usage.prompt_tokens,
                 .completion_tokens = parsed.value.usage.completion_tokens,
@@ -278,7 +283,7 @@ pub const ChatCompletionStream = struct {
         if (chunk.choices.len > 0) {
             const choice = chunk.choices[0];
             return StreamChunk{
-                .content = choice.delta.content orelse "",
+                .content = choice.delta.content,
                 .role = choice.delta.role,
                 .finish_reason = choice.finish_reason,
                 .tool_calls = null,
@@ -356,7 +361,7 @@ pub const ChatCompletionStream = struct {
 
 /// Individual chunk from a streaming response
 pub const StreamChunk = struct {
-    content: []const u8,
+    content: ?[]const u8,
     role: ?[]const u8,
     finish_reason: ?[]const u8,
     tool_calls: ?[]const models.ChatCompletionChunk.StreamToolCall,
@@ -366,7 +371,7 @@ test "client initialization" {
     const testing = std.testing;
     const allocator = testing.allocator;
 
-    const client = LLMClient.init(allocator, "test-key", "gpt-4", .{});
+    var client = LLMClient.init(allocator, "test-key", "gpt-4", .{});
     defer client.deinit();
 
     try testing.expect(std.mem.eql(u8, client.model, "gpt-4"));
@@ -377,7 +382,7 @@ test "harmony client initialization" {
     const testing = std.testing;
     const allocator = testing.allocator;
 
-    const client = LLMClient.init(allocator, "test-key", "gpt-oss", .{ .use_harmony = true });
+    var client = LLMClient.init(allocator, "test-key", "gpt-oss", .{ .use_harmony = true });
     defer client.deinit();
 
     try testing.expect(std.mem.eql(u8, client.model, "gpt-oss"));
