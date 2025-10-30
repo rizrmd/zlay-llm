@@ -46,6 +46,119 @@ pub const LLMClient = struct {
         }
     }
 
+    /// Create a chat completion with automatic tool use loop
+    /// Continues calling tools until no more tool calls are returned
+    pub fn createChatCompletionWithToolLoop(
+        self: *LLMClient, 
+        initial_request: models.ChatCompletionRequest,
+        max_iterations: u32,
+        tool_executor: *const fn (tool_name: []const u8, arguments: []const u8, allocator: std.mem.Allocator) []const u8,
+    ) !models.ChatCompletionResponse {
+        var messages = try self.allocator.alloc(models.ChatMessage, initial_request.messages.len);
+        for (initial_request.messages, 0..) |msg, i| {
+            messages[i] = msg;
+        }
+        defer self.allocator.free(messages);
+
+        var iteration: u32 = 0;
+        
+        while (iteration < max_iterations) : (iteration += 1) {
+            std.debug.print("Tool Loop {}: Requesting completion with {} messages\n", .{ iteration + 1, messages.len });
+            
+            // Create request with current messages
+            var request = initial_request;
+            request.messages = messages;
+            
+            // Get completion
+            const response = try self.createChatCompletion(request);
+            
+            if (response.choices.len == 0) {
+                return error.NoChoicesInResponse;
+            }
+            
+            const choice = response.choices[0];
+            const content = choice.message.content orelse "";
+            
+            // Check if model made tool calls
+            if (choice.message.tool_calls) |tool_calls| {
+                std.debug.print("Model made {} tool call(s), executing...\n", .{tool_calls.len});
+                
+                // Add assistant response to messages
+                try self.appendToolCallsToMessages(&messages, content, tool_calls);
+                
+                // Execute each tool call
+                for (tool_calls) |tool_call| {
+                    const tool_name = tool_call.function.name orelse "";
+                    const tool_args = tool_call.function.arguments orelse "{}";
+                    
+                    std.debug.print("Executing tool: {} with args: {}\n", .{ tool_name, tool_args });
+                    
+                    // Execute tool and get result
+                    const tool_result = try tool_executor(tool_name, tool_args, self.allocator);
+                    
+                    // Add tool result to messages
+                    try self.appendToolResultToMessages(&messages, tool_result, tool_call.id orelse "");
+                    
+                    std.debug.print("Tool execution complete, result length: {}\n", .{tool_result.len});
+                }
+                
+                // Continue loop with tool results added
+                continue;
+            } else {
+                // No tool calls, return final response
+                std.debug.print("No tool calls in response, returning final result\n", .{});
+                return response;
+            }
+        }
+        
+        return error.MaxIterationsReached;
+    }
+
+    fn appendToolCallsToMessages(
+        self: *LLMClient, 
+        messages: *[]models.ChatMessage, 
+        content: []const u8, 
+        tool_calls: []const models.ChatMessage.ToolCall,
+    ) !void {
+        const new_len = messages.len + 1;
+        const new_messages = try self.allocator.realloc(messages.*, new_len);
+        
+        new_messages[new_len - 1] = models.ChatMessage{
+            .role = "assistant",
+            .content = content,
+            .tool_calls = tool_calls,
+        };
+        
+        messages.* = new_messages;
+    }
+
+    /// Create a streaming chat completion with real-time tool call interception
+    pub fn streamChatCompletionWithToolCallback(
+        self: *LLMClient,
+        request: models.ChatCompletionRequest,
+        tool_callback: *const fn (tool_calls: []const models.ChatCompletionChunk.StreamToolCall) void,
+        content_callback: *const fn (content: []const u8) void,
+    ) !ChatCompletionStream {
+        var stream_request = request;
+        stream_request.stream = true;
+
+        // Simple JSON string for streaming request
+        const request_json = try std.fmt.allocPrint(self.allocator, "{{\"model\":\"{s}\",\"messages\":[{{\"role\":\"{s}\",\"content\":\"{s}\"}}],\"stream\":{s}}}", .{ stream_request.model, stream_request.messages[0].role, stream_request.messages[0].content orelse "", if (stream_request.stream) "true" else "false" });
+        defer self.allocator.free(request_json);
+
+        const http_stream = try self.http_client.postStream("/chat/completions", request_json);
+
+        return ChatCompletionStream{
+            .allocator = self.allocator,
+            .http_stream = http_stream,
+            .json_parser = self.json_parser,
+            .use_harmony = self.use_harmony,
+            .harmony_parser = null,
+            .tool_callback = tool_callback,
+            .content_callback = content_callback,
+        };
+    }
+
     /// Standard OpenAI chat completion
     fn createStandardChatCompletion(self: *LLMClient, request: models.ChatCompletionRequest) !models.ChatCompletionResponse {
         // Simple JSON string for testing
@@ -265,6 +378,8 @@ pub const ChatCompletionStream = struct {
     json_parser: http.JsonParser,
     use_harmony: bool,
     harmony_parser: ?*harmony_parser_mod.StreamableParser,
+    tool_callback: ?*const fn (tool_calls: []const models.ChatCompletionChunk.StreamToolCall) void,
+    content_callback: ?*const fn (content: []const u8) void,
 
     pub fn next(self: *ChatCompletionStream) !?StreamChunk {
         if (self.use_harmony) {
@@ -282,11 +397,26 @@ pub const ChatCompletionStream = struct {
 
         if (chunk.choices.len > 0) {
             const choice = chunk.choices[0];
+            
+            // Call tool callback if tool calls are present
+            if (choice.delta.tool_calls) |tool_calls| {
+                if (self.tool_callback) |callback| {
+                    callback(tool_calls);
+                }
+            }
+            
+            // Call content callback if content is present
+            if (choice.delta.content) |content| {
+                if (self.content_callback) |callback| {
+                    callback(content);
+                }
+            }
+            
             return StreamChunk{
                 .content = choice.delta.content,
                 .role = choice.delta.role,
                 .finish_reason = choice.finish_reason,
-                .tool_calls = null,
+                .tool_calls = choice.delta.tool_calls,
             };
         }
 

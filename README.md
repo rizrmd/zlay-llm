@@ -287,41 +287,102 @@ The client supports flexible configuration through environment variables:
 - `MODEL`: Model name (default: `glm-4.5v`)
 - `OPENAI_API_KEY`: Fallback API key for OpenAI compatibility
 
-## Examples
+## Tool Use Loop
 
-### Complete Working Example
+The Zlay LLM Client supports automatic tool use loops with built-in handling:
+
+### Automatic Tool Use Loop
 
 ```zig
-const std = @import("std");
-const client = @import("src/client.zig");
-const models = @import("src/models.zig");
+const response = try llm_client.createChatCompletionWithToolLoop(
+    request,
+    max_iterations: 5,
+    tool_executor: executeMyTool,
+);
+```
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-    
-    var llm_client = client.LLMClient.init(allocator, "93ac6b4e9c1c49b4b64fed617669e569.5nfnaoMbbNaKZ26I", "glm-4.5v", .{
-        .base_url = "https://api.z.ai/api/coding/paas/v4",
-    });
-    defer llm_client.deinit();
-    
-    const messages = [_]models.ChatMessage{
-        .{ .role = "user", .content = "Explain Zig language in 5 words." },
-    };
-    
-    const request = models.ChatCompletionRequest{
-        .model = "glm-4.5v",
-        .messages = &messages,
-        .max_tokens = 20,
-        .temperature = 0.7,
-    };
-    
-    const response = try llm_client.createChatCompletion(request);
-    if (response.choices.len > 0) {
-        const content = response.choices[0].message.content orelse "";
-        std.debug.print("Response: {s}\n", .{content});
-    }
+The library automatically:
+- Detects when the model makes tool calls
+- Executes your tool functions
+- Sends results back to the model
+- Continues until no more tool calls are returned
+- Returns the final response
+
+### Streaming Tool Use with Callbacks
+
+For real-time tool call detection during streaming:
+
+```zig
+var stream = try llm_client.streamChatCompletionWithToolCallback(
+    request,
+    handleToolCalls,  // Called when tools are detected
+    handleContent,   // Called for content chunks
+);
+defer stream.deinit();
+
+while (try stream.next()) |chunk| {
+    // Your callbacks handle tools automatically
 }
 ```
+
+### Tool Executor Function
+
+Your tool executor function should have this signature:
+
+```zig
+fn executeTool(
+    tool_name: []const u8,
+    arguments: []const u8, 
+    allocator: std.mem.Allocator
+) []const u8 {
+    // Execute your tool and return JSON result
+    return "{\"result\": \"success\", \"data\": \"...\"}";
+}
+```
+
+### Tool Choice Options
+
+- `.auto`: Let model decide when to use tools
+- `.none`: Never use tools
+- `.required`: Must use at least one tool
+- `.function`: Use a specific tool
+
+### Example Complete Workflow
+
+```zig
+// 1. Define tools
+const tools = [_]models.ChatCompletionRequest.Tool{
+    .{
+        .function = .{
+            .name = "get_weather",
+            .description = "Get weather information",
+            .parameters: /* JSON schema */,
+        },
+    },
+};
+
+// 2. Create request
+const request = models.ChatCompletionRequest{
+    .model = "glm-4.5v",
+    .messages = &[_]models.ChatMessage{
+        .{ .role = "user", .content = "What's the weather in Tokyo?" },
+    },
+    .tools = &tools,
+    .tool_choice = .{ .auto = {} },
+};
+
+// 3. Execute with automatic tool loop
+const response = try llm_client.createChatCompletionWithToolLoop(
+    request,
+    max_iterations: 5,
+    executeWeatherTool,
+);
+
+// 4. Get final response (all tools already executed)
+std.debug.print("Final: {s}\n", .{response.choices[0].message.content.?});
+```
+
+**The library handles the complete tool use loop automatically!**
 
 ## Performance
 

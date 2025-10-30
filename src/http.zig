@@ -196,10 +196,12 @@ pub const HttpClient = struct {
         _ = path;
         _ = request_body;
         
-        // Mock SSE data for testing
+        // Mock SSE data for testing with tool calls
         const sse_data = 
-            "data: {\"id\":\"test\",\"choices\":[{\"delta\":{\"content\":\"Hello\"}]}\n" ++
-            "data: {\"id\":\"test2\",\"choices\":[{\"delta\":{\"content\":\" there!\"}]}\n" ++
+            "data: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"created\":1234567890,\"model\":\"glm-4.5v\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"I'll help you\"}]}\n" ++
+            "data: {\"id\":\"chatcmpl-124\",\"object\":\"chat.completion.chunk\",\"created\":1234567890,\"model\":\"glm-4.5v\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\":\\\"Tokyo\\\"}\"}}]}}\n" ++
+            "data: {\"id\":\"chatcmpl-125\",\"object\":\"chat.completion.chunk\",\"created\":1234567890,\"model\":\"glm-4.5v\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call_2\",\"type\":\"function\",\"function\":{\"name\":\"calculate_sum\",\"arguments\":\"{\\\"a\\\":5,\\\"b\\\":7}\"}}]}}\n" ++
+            "data: {\"id\":\"chatcmpl-126\",\"object\":\"chat.completion.chunk\",\"created\":1234567890,\"model\":\"glm-4.5v\",\"choices\":[{\"index\":0,\"finish_reason\":\"tool_calls\"}]}\n" ++
             "data: [DONE]\n";
         
         var fbs = std.io.fixedBufferStream(sse_data);
