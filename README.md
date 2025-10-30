@@ -12,7 +12,17 @@ A high-performance, OpenAI-compatible LLM client written in Zig with full suppor
 - **Memory Safe**: Built with Zig's memory safety guarantees
 - **Zero Dependencies**: No external dependencies beyond Zig's standard library
 
+## Installation
+
+```bash
+git clone https://github.com/your-username/zlay-llm.git
+cd zlay-llm
+zig build-exe src/main.zig --name zlay-llm
+```
+
 ## Quick Start
+
+### Basic Usage
 
 ```zig
 const std = @import("std");
@@ -44,6 +54,13 @@ pub fn main() !void {
     const response = try llm_client.createChatCompletion(request);
     std.debug.print("Response: {s}\n", .{response.choices[0].message.content.?});
 }
+```
+
+### With Environment Variables
+
+```bash
+export OPENAI_API_KEY="your-api-key-here"
+./zlay-llm
 ```
 
 ## Harmony Format Support
