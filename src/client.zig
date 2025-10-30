@@ -28,8 +28,8 @@ pub const LLMClient = struct {
         self.http_client.deinit();
     }
 
-    /// Create a chat completion (non-streaming)
-    pub fn createChatCompletion(self: *LLMClient, request: models.ChatCompletionRequest) !models.ChatCompletionResponse {
+    /// Chat completion (non-streaming)
+    pub fn chat(self: *LLMClient, request: models.ChatCompletionRequest) !models.ChatCompletionResponse {
         if (self.use_harmony) {
             return self.createHarmonyChatCompletion(request);
         } else {
@@ -37,8 +37,8 @@ pub const LLMClient = struct {
         }
     }
 
-    /// Create a streaming chat completion
-    pub fn streamChatCompletion(self: *LLMClient, request: models.ChatCompletionRequest) !ChatCompletionStream {
+    /// Chat completion (streaming)
+    pub fn stream(self: *LLMClient, request: models.ChatCompletionRequest) !ChatCompletionStream {
         if (self.use_harmony) {
             return self.streamHarmonyChatCompletion(request);
         } else {
@@ -46,9 +46,9 @@ pub const LLMClient = struct {
         }
     }
 
-    /// Create a chat completion with automatic tool use loop
+    /// Chat completion with automatic tool use loop
     /// Continues calling tools until no more tool calls are returned
-    pub fn createChatCompletionWithToolLoop(
+    pub fn chatWithTools(
         self: *LLMClient, 
         initial_request: models.ChatCompletionRequest,
         max_iterations: u32,
@@ -132,8 +132,8 @@ pub const LLMClient = struct {
         messages.* = new_messages;
     }
 
-    /// Create a streaming chat completion with real-time tool call interception
-    pub fn streamChatCompletionWithToolCallback(
+    /// Chat completion with real-time tool call interception
+    pub fn streamWithTools(
         self: *LLMClient,
         request: models.ChatCompletionRequest,
         tool_callback: *const fn (tool_calls: []const models.ChatCompletionChunk.StreamToolCall) void,
@@ -158,6 +158,44 @@ pub const LLMClient = struct {
             .content_callback = content_callback,
         };
     }
+
+    // ========== DEPRECATED METHODS FOR BACKWARD COMPATIBILITY ==========
+    
+    /// [DEPRECATED] Use chat() instead
+    pub fn createChatCompletion(self: *LLMClient, request: models.ChatCompletionRequest) !models.ChatCompletionResponse {
+        std.log.warn("createChatCompletion is deprecated, use chat() instead", .{});
+        return self.chat(request);
+    }
+    
+    /// [DEPRECATED] Use stream() instead
+    pub fn streamChatCompletion(self: *LLMClient, request: models.ChatCompletionRequest) !ChatCompletionStream {
+        std.log.warn("streamChatCompletion is deprecated, use stream() instead", .{});
+        return self.stream(request);
+    }
+    
+    /// [DEPRECATED] Use chatWithTools() instead
+    pub fn createChatCompletionWithToolLoop(
+        self: *LLMClient, 
+        initial_request: models.ChatCompletionRequest,
+        max_iterations: u32,
+        tool_executor: *const fn (tool_name: []const u8, arguments: []const u8, allocator: std.mem.Allocator) []const u8,
+    ) !models.ChatCompletionResponse {
+        std.log.warn("createChatCompletionWithToolLoop is deprecated, use chatWithTools() instead", .{});
+        return self.chatWithTools(initial_request, max_iterations, tool_executor);
+    }
+    
+    /// [DEPRECATED] Use streamWithTools() instead
+    pub fn streamChatCompletionWithToolCallback(
+        self: *LLMClient,
+        request: models.ChatCompletionRequest,
+        tool_callback: *const fn (tool_calls: []const models.ChatCompletionChunk.StreamToolCall) void,
+        content_callback: *const fn (content: []const u8) void,
+    ) !ChatCompletionStream {
+        std.log.warn("streamChatCompletionWithToolCallback is deprecated, use streamWithTools() instead", .{});
+        return self.streamWithTools(request, tool_callback, content_callback);
+    }
+    
+    // ========== END DEPRECATED METHODS ==========
 
     /// Standard OpenAI chat completion
     fn createStandardChatCompletion(self: *LLMClient, request: models.ChatCompletionRequest) !models.ChatCompletionResponse {
