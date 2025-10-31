@@ -29,7 +29,17 @@ pub const LLMClient = struct {
     }
 
     /// Chat completion (non-streaming)
-    pub fn chat(self: *LLMClient, request: models.ChatCompletionRequest) !models.ChatCompletionResponse {
+    /// Optional tool_executor and max_iterations for automatic tool handling
+    pub fn chat(
+        self: *LLMClient, 
+        request: models.ChatCompletionRequest,
+        tool_executor: ?*const fn (tool_name: []const u8, arguments: []const u8, allocator: std.mem.Allocator) []const u8 = null,
+        max_iterations: ?u32 = null,
+    ) !models.ChatCompletionResponse {
+        if (tool_executor) |executor| {
+            return self.chatWithToolLoop(request, max_iterations orelse 5, executor);
+        }
+        
         if (self.use_harmony) {
             return self.createHarmonyChatCompletion(request);
         } else {
@@ -38,7 +48,17 @@ pub const LLMClient = struct {
     }
 
     /// Chat completion (streaming)
-    pub fn stream(self: *LLMClient, request: models.ChatCompletionRequest) !ChatCompletionStream {
+    /// Optional tool_callback and content_callback for real-time tool handling
+    pub fn stream(
+        self: *LLMClient,
+        request: models.ChatCompletionRequest,
+        tool_callback: ?*const fn (tool_calls: []const models.ChatCompletionChunk.StreamToolCall) void = null,
+        content_callback: ?*const fn (content: []const u8) void = null,
+    ) !ChatCompletionStream {
+        if (tool_callback) |callback| {
+            return self.streamWithTools(request, callback, content_callback orelse handleContentDummy);
+        }
+        
         if (self.use_harmony) {
             return self.streamHarmonyChatCompletion(request);
         } else {
@@ -70,7 +90,7 @@ pub const LLMClient = struct {
             request.messages = messages;
             
             // Get completion
-            const response = try self.createChatCompletion(request);
+            const response = try self.chat(request);
             
             if (response.choices.len == 0) {
                 return error.NoChoicesInResponse;
@@ -84,7 +104,7 @@ pub const LLMClient = struct {
                 std.debug.print("Model made {} tool call(s), executing...\n", .{tool_calls.len});
                 
                 // Add assistant response to messages
-                try self.appendToolCallsToMessages(&messages, content, tool_calls);
+                try self.appendAssistantToMessages(&messages, content, tool_calls);
                 
                 // Execute each tool call
                 for (tool_calls) |tool_call| {
@@ -114,7 +134,7 @@ pub const LLMClient = struct {
         return error.MaxIterationsReached;
     }
 
-    fn appendToolCallsToMessages(
+    fn appendAssistantToMessages(
         self: *LLMClient, 
         messages: *[]models.ChatMessage, 
         content: []const u8, 
